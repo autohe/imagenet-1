@@ -102,14 +102,14 @@ def distort_color(image, thread_id=0, scope=None):
 
         if color_ordering == 0:
             image = tf.image.random_brightness(image, max_delta=32. / 255.)
-            image = tf.image.random_saturation(image, lower=0.5, upper=1.5)
-            image = tf.image.random_hue(image, max_delta=0.2)
-            image = tf.image.random_contrast(image, lower=0.5, upper=1.5)
+            image = tf.image.random_saturation(image, lower=0.8, upper=1.2)
+            image = tf.image.random_hue(image, max_delta=0.1)
+            image = tf.image.random_contrast(image, lower=0.8, upper=1.2)
         elif color_ordering == 1:
             image = tf.image.random_brightness(image, max_delta=32. / 255.)
-            image = tf.image.random_contrast(image, lower=0.5, upper=1.5)
-            image = tf.image.random_saturation(image, lower=0.5, upper=1.5)
-            image = tf.image.random_hue(image, max_delta=0.2)
+            image = tf.image.random_contrast(image, lower=0.8, upper=1.2)
+            image = tf.image.random_saturation(image, lower=0.8, upper=1.2)
+            image = tf.image.random_hue(image, max_delta=0.1)
 
         # The random_* ops do not necessarily clamp.
         image = tf.clip_by_value(image, 0.0, 1.0)
@@ -125,9 +125,6 @@ def distort_image(image, height, width, thread_id=0, scope=None):
     image: 3-D float Tensor of image
     height: integer
     width: integer
-    bbox: 3-D float Tensor of bounding boxes arranged [1, num_boxes, coords]
-      where each coordinate is [0, 1) and the coordinates are arranged
-      as [ymin, xmin, ymax, xmax].
     thread_id: integer indicating the preprocessing thread.
     scope: Optional scope for op_scope.
     Returns:
@@ -142,8 +139,7 @@ def distort_image(image, height, width, thread_id=0, scope=None):
     resize_method = thread_id % 4
     distorted_image = tf.image.resize_images(distorted_image, height, width,
                                              resize_method)
-    # Restore the shape since the dynamic slice based upon the bbox_size loses
-    # the third dimension.
+
     distorted_image.set_shape([height, width, 3])
     if not thread_id:
         tf.image_summary('cropped_resized_image',
@@ -315,14 +311,21 @@ def batch_inputs(dataset, batch_size, train, num_preprocess_threads, num_readers
         _, example_serialized = reader.read(filename_queue)
 
     images_and_labels = []
+    synsets = []
+
     for thread_id in range(num_preprocess_threads):
         # Parse a serialized Example proto to extract the image and metadata.
-        image_buffer, label_index, _ = parse_example_proto(
+        image_buffer, label_index, synset = parse_example_proto(
           example_serialized)
         image = image_preprocessing(image_buffer, train, thread_id)
         images_and_labels.append([image, label_index])
 
-        images, label_index_batch = tf.train.batch_join(
+
+    synsets = tf.train.batch(
+		synsets, batch_size, 
+		capacity = 2 *num_preprocess_threads * batch_size)
+
+    images, label_index_batch = tf.train.batch_join(
                 images_and_labels,
                 batch_size=batch_size,
                 capacity=2 * num_preprocess_threads * batch_size)
@@ -338,7 +341,7 @@ def batch_inputs(dataset, batch_size, train, num_preprocess_threads, num_readers
     # Display the training images in the visualizer.
     tf.image_summary('images', images)
 
-    return images, tf.reshape(label_index_batch, [batch_size])
+    return images, tf.reshape(label_index_batch, [batch_size]), synsets
 
 
 train_dataset = Dataset('train')
